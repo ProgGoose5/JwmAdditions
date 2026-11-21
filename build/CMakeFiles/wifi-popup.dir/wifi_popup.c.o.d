@@ -1,5 +1,5 @@
 CMakeFiles/wifi-popup.dir/wifi_popup.c.o: \
- /home/goosely/Desktop/goosely/Github_Repos/ReducedSystem/wifi_popup.c \
+ /home/goosely/Desktop/goosely/Github_Repos/JwmAdditions/wifi_popup.c \
  /usr/include/stdc-predef.h /usr/include/X11/Xlib.h \
  /usr/include/sys/types.h /usr/include/features.h \
  /usr/include/features-time64.h /usr/include/bits/wordsize.h \
@@ -23,6 +23,7 @@ CMakeFiles/wifi-popup.dir/wifi_popup.c.o: \
  /usr/include/bits/struct_rwlock.h /usr/include/X11/X.h \
  /usr/include/X11/Xfuncproto.h /usr/include/X11/Xosdefs.h \
  /usr/include/X11/keysym.h /usr/include/X11/keysymdef.h \
+ /usr/include/X11/Xutil.h /usr/include/X11/Xresource.h \
  /usr/include/stdio.h /usr/include/bits/libc-header-start.h \
  /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/stdarg.h \
  /usr/include/bits/types/__fpos_t.h /usr/include/bits/types/__mbstate_t.h \
@@ -35,7 +36,10 @@ CMakeFiles/wifi-popup.dir/wifi_popup.c.o: \
  /usr/include/alloca.h /usr/include/bits/stdlib-float.h \
  /usr/include/string.h /usr/include/bits/types/locale_t.h \
  /usr/include/bits/types/__locale_t.h /usr/include/strings.h \
- /usr/include/dbus-1.0/dbus/dbus.h \
+ /usr/include/unistd.h /usr/include/bits/posix_opt.h \
+ /usr/include/bits/environments.h /usr/include/bits/confname.h \
+ /usr/include/bits/getopt_posix.h /usr/include/bits/getopt_core.h \
+ /usr/include/bits/unistd_ext.h /usr/include/dbus-1.0/dbus/dbus.h \
  /usr/lib/dbus-1.0/include/dbus/dbus-arch-deps.h \
  /usr/include/dbus-1.0/dbus/dbus-macros.h \
  /usr/include/dbus-1.0/dbus/dbus-address.h \

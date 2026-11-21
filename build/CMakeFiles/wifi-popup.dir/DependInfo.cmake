@@ -8,7 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/goosely/Desktop/goosely/Github_Repos/ReducedSystem/wifi_popup.c" "CMakeFiles/wifi-popup.dir/wifi_popup.c.o" "gcc" "CMakeFiles/wifi-popup.dir/wifi_popup.c.o.d"
+  "/home/goosely/Desktop/goosely/Github_Repos/JwmAdditions/wifi_popup.c" "CMakeFiles/wifi-popup.dir/wifi_popup.c.o" "gcc" "CMakeFiles/wifi-popup.dir/wifi_popup.c.o.d"
   "" "wifi-popup" "gcc" "CMakeFiles/wifi-popup.dir/link.d"
   )
 

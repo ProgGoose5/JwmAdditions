@@ -1,0 +1,16 @@
+build/cmake_install.cmake
+build/CMakeCache.txt
+build/Makefile
+build/wifi-popup
+build/CMakeFiles/CMakeConfigureLog.yaml
+build/CMakeFiles/CMakeDirectoryInformation.cmake
+build/CMakeFiles/InstallScripts.json
+build/CMakeFiles/Makefile.cmake
+build/CMakeFiles/Makefile2
+build/CMakeFiles/TargetDirectories.txt
+build/CMakeFiles/wifi-popup.dir/build.make
+build/CMakeFiles/wifi-popup.dir/compiler_depend.internal
+build/CMakeFiles/wifi-popup.dir/compiler_depend.make
+build/CMakeFiles/wifi-popup.dir/DependInfo.cmake
+build/CMakeFiles/wifi-popup.dir/wifi_popup.c.o
+build/CMakeFiles/wifi-popup.dir/wifi_popup.c.o.d
