@@ -8,7 +8,7 @@
 #include <dbus/dbus.h>
 
 #define WIN_WIDTH  260
-#define WIN_HEIGHT 420
+#define WIN_HEIGHT 460
 #define ROW_HEIGHT 40
 #define MAX_NETS   16
 #define SSID_MAX   33
@@ -33,14 +33,15 @@ typedef struct {
     unsigned long sel_bg;
     unsigned long btn_bg;
     unsigned long btn_fg;
+    unsigned long btn_danger;
 
     DBusConnection *dbus_conn;
     char wifi_device_path[256];
 
-    // FIX: guardamos el path del AP seleccionado para no depender solo del SSID
     char selected_ap_path[256];
-    // FIX: flag para saber si el AP requiere contraseña (seguridad != ninguna)
     int selected_secure;
+
+    char status_msg[64]; // mensajito de estado (opcional)
 } AppData;
 
 static unsigned long alloc_color(Display *dpy, int screen, const char *hex) {
@@ -131,7 +132,6 @@ static int dbus_call_get_devices(AppData *app) {
     return found ? 0 : -1;
 }
 
-// FIX: helper para leer una propiedad de un AP
 static int ap_get_property_string(DBusConnection *conn, const char *ap_path,
                                   const char *prop, char *out, int out_len) {
     DBusMessage *smsg = dbus_message_new_method_call(
@@ -225,7 +225,6 @@ static int ap_get_property_u32(DBusConnection *conn, const char *ap_path,
 static int dbus_get_access_points(AppData *app) {
     if (app->wifi_device_path[0] == '\0') return -1;
 
-    // FIX: GetAllAccessPoints en lugar del obsoleto GetAccessPoints
     DBusMessage *msg = dbus_message_new_method_call(
         "org.freedesktop.NetworkManager",
         app->wifi_device_path,
@@ -263,7 +262,6 @@ static int dbus_get_access_points(AppData *app) {
         char ssid[SSID_MAX];
         if (ap_get_property_string(app->dbus_conn, ap_path, "Ssid",
                                    ssid, sizeof(ssid)) == 0) {
-            // Evitar SSID duplicados
             int dup = 0;
             for (int j = 0; j < app->net_count; j++) {
                 if (strcmp(app->ssids[j], ssid) == 0) { dup = 1; break; }
@@ -280,7 +278,6 @@ static int dbus_get_access_points(AppData *app) {
     return 0;
 }
 
-// FIX: rellena selected_ap_path y selected_secure para el SSID elegido
 static void resolve_selected_ap(AppData *app) {
     app->selected_ap_path[0] = '\0';
     app->selected_secure = 0;
@@ -325,15 +322,10 @@ static void resolve_selected_ap(AppData *app) {
                     sizeof(app->selected_ap_path) - 1);
             app->selected_ap_path[sizeof(app->selected_ap_path) - 1] = '\0';
 
-            dbus_uint32_t flags = 0;
-            ap_get_property_u32(app->dbus_conn, ap_path, "Flags", &flags);
-            dbus_uint32_t wpa_flags = 0;
+            dbus_uint32_t wpa_flags = 0, rsn_flags = 0;
             ap_get_property_u32(app->dbus_conn, ap_path, "WpaFlags", &wpa_flags);
-            dbus_uint32_t rsn_flags = 0;
             ap_get_property_u32(app->dbus_conn, ap_path, "RsnFlags", &rsn_flags);
-            // NM_802_11_AP_SEC_NONE == 0
             app->selected_secure = !(wpa_flags == 0 && rsn_flags == 0);
-            (void)flags;
             break;
         }
         dbus_message_iter_next(&array);
@@ -345,6 +337,36 @@ static void refresh_networks(AppData *app) {
     if (dbus_call_get_devices(app) == 0) {
         dbus_get_access_points(app);
     }
+}
+
+// ---------- D-Bus: Desconectar todo ----------
+
+static int disconnect_all(AppData *app) {
+    if (app->wifi_device_path[0] == '\0') {
+        fprintf(stderr, "No hay dispositivo WiFi disponible\n");
+        return -1;
+    }
+
+    DBusMessage *msg = dbus_message_new_method_call(
+        "org.freedesktop.NetworkManager",
+        app->wifi_device_path,
+        "org.freedesktop.NetworkManager.Device",
+        "Disconnect");
+    if (!msg) return -1;
+
+    DBusError err;
+    dbus_error_init(&err);
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
+        app->dbus_conn, msg, 8000, &err);
+    dbus_message_unref(msg);
+
+    if (dbus_error_is_set(&err)) {
+        fprintf(stderr, "Disconnect error: %s\n", err.message);
+        dbus_error_free(&err);
+        return -1;
+    }
+    if (reply) dbus_message_unref(reply);
+    return 0;
 }
 
 // ---------- D-Bus: Conexión ----------
@@ -396,7 +418,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
     dbus_message_iter_init_append(msg, &args);
     dbus_message_iter_open_container(&args, DBUS_TYPE_ARRAY, "{sa{sv}}", &conn_dict);
 
-    // connection
     dbus_message_iter_open_container(&conn_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
     const char *k_conn = "connection";
     dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &k_conn);
@@ -406,7 +427,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
     dbus_message_iter_close_container(&entry, &vals);
     dbus_message_iter_close_container(&conn_dict, &entry);
 
-    // 802-11-wireless
     dbus_message_iter_open_container(&conn_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
     const char *k_wifi = "802-11-wireless";
     dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &k_wifi);
@@ -416,7 +436,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
     dbus_message_iter_close_container(&entry, &vals);
     dbus_message_iter_close_container(&conn_dict, &entry);
 
-    // FIX: solo añadir sección de seguridad si la red es segura
     if (secure) {
         dbus_message_iter_open_container(&conn_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
         const char *k_sec = "802-11-wireless-security";
@@ -428,7 +447,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
         dbus_message_iter_close_container(&conn_dict, &entry);
     }
 
-    // ipv4
     dbus_message_iter_open_container(&conn_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
     const char *k_ip4 = "ipv4";
     dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &k_ip4);
@@ -437,7 +455,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
     dbus_message_iter_close_container(&entry, &vals);
     dbus_message_iter_close_container(&conn_dict, &entry);
 
-    // ipv6
     dbus_message_iter_open_container(&conn_dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
     const char *k_ip6 = "ipv6";
     dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &k_ip6);
@@ -451,7 +468,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
     const char *dev_path = app->wifi_device_path;
     dbus_message_iter_append_basic(&args, DBUS_TYPE_OBJECT_PATH, &dev_path);
 
-    // FIX: si conocemos el AP concreto, pasarlo como specific_object
     const char *specific = app->selected_ap_path[0] ? app->selected_ap_path : "/";
     dbus_message_iter_append_basic(&args, DBUS_TYPE_OBJECT_PATH, &specific);
 
@@ -470,7 +486,6 @@ static int connect_wifi_real(AppData *app, const char *ssid,
     return 0;
 }
 
-// FIX: conectar sin exigir pwd_len > 0; para redes abiertas no pide contraseña
 static void try_connect(AppData *app, int *running) {
     if (app->selected_idx < 0) return;
 
@@ -515,15 +530,23 @@ void draw_ui(AppData *app) {
         }
 
         int btn_y = WIN_HEIGHT - 60;
+        // Conectar
         XSetForeground(app->dpy, app->gc, app->btn_bg);
-        XFillRectangle(app->dpy, app->win, app->gc, 50, btn_y, 100, 30);
+        XFillRectangle(app->dpy, app->win, app->gc, 10, btn_y, 80, 30);
         XSetForeground(app->dpy, app->gc, app->btn_fg);
-        XDrawString(app->dpy, app->win, app->gc, 65, btn_y + 20, "Conectar", 8);
+        XDrawString(app->dpy, app->win, app->gc, 22, btn_y + 20, "Conectar", 8);
 
+        // Refrescar
         XSetForeground(app->dpy, app->gc, app->btn_bg);
-        XFillRectangle(app->dpy, app->win, app->gc, 160, btn_y, 80, 30);
+        XFillRectangle(app->dpy, app->win, app->gc, 95, btn_y, 75, 30);
         XSetForeground(app->dpy, app->gc, app->btn_fg);
-        XDrawString(app->dpy, app->win, app->gc, 170, btn_y + 20, "Refrescar", 9);
+        XDrawString(app->dpy, app->win, app->gc, 103, btn_y + 20, "Refrescar", 9);
+
+        // Desconectar todo (botón rojo)
+        XSetForeground(app->dpy, app->gc, app->btn_danger);
+        XFillRectangle(app->dpy, app->win, app->gc, 175, btn_y, 75, 30);
+        XSetForeground(app->dpy, app->gc, app->btn_fg);
+        XDrawString(app->dpy, app->win, app->gc, 182, btn_y + 20, "Descon.", 7);
     } else {
         XSetForeground(app->dpy, app->gc, app->fg_light);
         XDrawString(app->dpy, app->win, app->gc, 10, 40,
@@ -577,7 +600,6 @@ int main(void) {
         dbus_error_free(&dbus_err);
         return 1;
     }
-    // FIX: no salir del proceso si el bus se cae; solo cerrar la conexión
     dbus_connection_set_exit_on_disconnect(app.dbus_conn, 0);
 
     app.dpy = XOpenDisplay(NULL);
@@ -588,13 +610,10 @@ int main(void) {
     app.screen = DefaultScreen(app.dpy);
 
     XSetWindowAttributes attrs;
-    // FIX: sin override_redirect el WM da foco y el teclado funciona siempre.
-    // Si necesitas popup flotante, ponlo a True y ejecuta en X11 nativo
-    // (no Wayland/Xwayland) o añade el WM_CLASS a xwayland-grab-access-rules.
-    attrs.override_redirect = False;
+    attrs.override_redirect = False; // WM gestiona foco y posición
     attrs.background_pixel = BlackPixel(app.dpy, app.screen);
     attrs.event_mask = ExposureMask | ButtonPressMask | KeyPressMask |
-                       ButtonReleaseMask;
+                       ButtonReleaseMask | StructureNotifyMask | FocusChangeMask;
 
     app.win = XCreateWindow(app.dpy, RootWindow(app.dpy, app.screen),
                             100, 100, WIN_WIDTH, WIN_HEIGHT, 0,
@@ -603,7 +622,7 @@ int main(void) {
                             &attrs);
 
     XStoreName(app.dpy, app.win, "WiFi Popup");
-    // FIX: WM_CLASS para que el WM sepa identificar la ventana
+
     XClassHint *ch = XAllocClassHint();
     if (ch) {
         ch->res_name  = (char *)"wifi_popup";
@@ -612,24 +631,33 @@ int main(void) {
         XFree(ch);
     }
 
+    // === Sin bordes de minimizar/maximizar (pero gestionada por el WM) ===
+    {
+        struct {
+            unsigned long flags;
+            unsigned long functions;
+            unsigned long decorations;
+            long input_mode;
+            unsigned long status;
+        } motif_hints = { 2, 0, 0, 0, 0 }; // MWM_HINTS_DECORATIONS = 2, decorations = 0
+        Atom motif_atom = XInternAtom(app.dpy, "_MOTIF_WM_HINTS", False);
+        XChangeProperty(app.dpy, app.win, motif_atom, motif_atom, 32,
+                        PropModeReplace, (unsigned char *)&motif_hints, 5);
+    }
+
     app.gc = XCreateGC(app.dpy, app.win, 0, NULL);
     app.font = XLoadQueryFont(app.dpy, "fixed");
     if (app.font) XSetFont(app.dpy, app.gc, app.font->fid);
 
-    app.bg_dark  = alloc_color(app.dpy, app.screen, "#2E2E2E");
-    app.fg_light = alloc_color(app.dpy, app.screen, "#E6E6E6");
-    app.sel_bg   = alloc_color(app.dpy, app.screen, "#4A4A4A");
-    app.btn_bg   = alloc_color(app.dpy, app.screen, "#3A3A3A");
-    app.btn_fg   = alloc_color(app.dpy, app.screen, "#E6E6E6");
-
-    // FIX: seleccionar eventos de teclado antes de mapear
-    XSelectInput(app.dpy, app.win,
-                 ExposureMask | ButtonPressMask | KeyPressMask |
-                 ButtonReleaseMask | StructureNotifyMask | FocusChangeMask);
+    app.bg_dark    = alloc_color(app.dpy, app.screen, "#2E2E2E");
+    app.fg_light   = alloc_color(app.dpy, app.screen, "#E6E6E6");
+    app.sel_bg     = alloc_color(app.dpy, app.screen, "#4A4A4A");
+    app.btn_bg     = alloc_color(app.dpy, app.screen, "#3A3A3A");
+    app.btn_fg     = alloc_color(app.dpy, app.screen, "#E6E6E6");
+    app.btn_danger = alloc_color(app.dpy, app.screen, "#8B2E2E");
 
     XMapWindow(app.dpy, app.win);
 
-    // Esperar MapNotify sin descartar eventos útiles
     for (;;) {
         XEvent map_ev;
         XNextEvent(app.dpy, &map_ev);
@@ -637,24 +665,21 @@ int main(void) {
         if (map_ev.type == Expose && map_ev.xexpose.count == 0) draw_ui(&app);
     }
 
-    // FIX: con override_redirect=False el WM gestiona el foco, pero lo pedimos igual
     XSetInputFocus(app.dpy, app.win, RevertToParent, CurrentTime);
 
-    // FIX: grab del puntero; con override_redirect=False conviene hacerlo
-    // sobre el root para recibir clics fuera de la ventana
+    // Grab del puntero para recibir clics fuera de la ventana
     int grab_ok = XGrabPointer(app.dpy, app.win, False,
                                 ButtonPressMask | ButtonReleaseMask,
                                 GrabModeAsync, GrabModeAsync,
                                 None, None, CurrentTime);
     if (grab_ok != GrabSuccess) {
-        fprintf(stderr, "Advertencia: XGrabPointer falló (%d).\n", grab_ok);
         usleep(100000);
         grab_ok = XGrabPointer(app.dpy, app.win, False,
                                 ButtonPressMask | ButtonReleaseMask,
                                 GrabModeAsync, GrabModeAsync,
                                 None, None, CurrentTime);
         if (grab_ok != GrabSuccess)
-            fprintf(stderr, "Reintento de XGrabPointer también falló (%d)\n", grab_ok);
+            fprintf(stderr, "Advertencia: XGrabPointer falló (%d)\n", grab_ok);
     }
 
     int kb_grab_ok = XGrabKeyboard(app.dpy, app.win, False,
@@ -676,15 +701,20 @@ int main(void) {
                 break;
 
             case ButtonPress: {
-                int mx = ev.xbutton.x;
-                int my = ev.xbutton.y;
-
-                // FIX: con grab activo, las coordenadas ya son relativas a la
-                // ventana; si están fuera del rectángulo, el clic fue afuera.
-                if (mx < 0 || mx >= WIN_WIDTH || my < 0 || my >= WIN_HEIGHT) {
+                // === Cierre al clic fuera (funciona en CUALQUIER modo) ===
+                // Comparamos coordenadas root contra la geometría real de la ventana.
+                XWindowAttributes wa;
+                XGetWindowAttributes(app.dpy, app.win, &wa);
+                if (ev.xbutton.x_root < wa.x ||
+                    ev.xbutton.x_root >= wa.x + wa.width ||
+                    ev.xbutton.y_root < wa.y ||
+                    ev.xbutton.y_root >= wa.y + wa.height) {
                     running = 0;
                     break;
                 }
+
+                int mx = ev.xbutton.x;
+                int my = ev.xbutton.y;
 
                 if (app.mode == 0) {
                     for (int i = 0; i < app.net_count; i++) {
@@ -697,8 +727,11 @@ int main(void) {
                         }
                     }
 
-                    if (mx >= 50 && mx <= 150 &&
-                        my >= WIN_HEIGHT - 60 && my <= WIN_HEIGHT - 30) {
+                    int btn_y = WIN_HEIGHT - 60;
+
+                    // Conectar (10..90)
+                    if (mx >= 10 && mx <= 90 &&
+                        my >= btn_y && my <= btn_y + 30) {
                         if (app.selected_idx >= 0) {
                             if (app.selected_secure) {
                                 app.mode = 1;
@@ -706,17 +739,30 @@ int main(void) {
                                 memset(app.password, 0, sizeof(app.password));
                                 draw_ui(&app);
                             } else {
-                                // FIX: red abierta -> conectar directo
                                 try_connect(&app, &running);
                             }
                         }
                     }
 
-                    if (mx >= 160 && mx <= 240 &&
-                        my >= WIN_HEIGHT - 60 && my <= WIN_HEIGHT - 30) {
+                    // Refrescar (95..170)
+                    if (mx >= 95 && mx <= 170 &&
+                        my >= btn_y && my <= btn_y + 30) {
                         refresh_networks(&app);
                         if (app.selected_idx >= app.net_count)
                             app.selected_idx = -1;
+                        draw_ui(&app);
+                    }
+
+                    // Desconectar todo (175..250)
+                    if (mx >= 175 && mx <= 250 &&
+                        my >= btn_y && my <= btn_y + 30) {
+                        if (disconnect_all(&app) == 0)
+                            printf("Desconectado de todas las redes.\n");
+                        else
+                            printf("No se pudo desconectar.\n");
+                        // Refrescar la lista por si cambia el estado
+                        refresh_networks(&app);
+                        app.selected_idx = -1;
                         draw_ui(&app);
                     }
                 } else {
