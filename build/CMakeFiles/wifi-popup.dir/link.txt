@@ -1,0 +1,1 @@
+/usr/bin/cc -m32 -L/usr/lib32 -Wl,--dependency-file=CMakeFiles/wifi-popup.dir/link.d "CMakeFiles/wifi-popup.dir/wifi_popup.c.o" -o wifi-popup  -lX11 -lSM -lICE -ldbus-1
